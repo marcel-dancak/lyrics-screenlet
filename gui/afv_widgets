@@ -1,0 +1,1199 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# This application is released under the GNU General Public License 
+# v3 (or, at your option, any later version). You can find the full 
+# text of the license under http://www.gnu.org/licenses/gpl.txt. 
+# By using, editing and/or distributing this software you agree to 
+# the terms and conditions of this license. 
+# Thank you for using free software!
+
+import logging
+log = logging.getLogger("LyricsScreenlet")
+
+import cairo
+import gobject
+import gtk
+import os
+#import array
+import sys
+import math
+
+#############################################################
+# This classes are probably only temporary solution, later can
+# be replaced with some library like goocanvas, clutter
+#############################################################
+
+def printRect(res, ret = ''):
+	print "%s %d, %d, %d, %d" % (ret, res.x, res.y, res.width, res.height)
+	
+class Theme:
+
+	delegate = None
+	
+	#pixmap = gtk.gdk.bitmap_create_from_data(None, "0", 1, 1)
+	#pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 1, 1)
+	#self.pixmap = gtk.gdk.Pixmap(self.window, self.width, self.height)
+			
+	def __init__(self, theme):
+		self.delegate = theme
+		
+	def __getattr__(self, name):
+		try:
+			return self.delegate.__getattribute__(name)
+		except:
+			return self.delegate.__getattr__(name)
+	
+	def render_with_alpha(self, ctx, name, alpha):
+		#print 'with alpha'
+		if self.svgs.has_key(name):
+			ctx.push_group()
+			self.svgs[name].render_cairo(ctx)
+			ctx.pop_group_to_source()
+			ctx.paint_with_alpha(alpha)
+		elif self.pngs.has_key(name):
+			ctx.set_source_surface(self.pngs[name], 0, 0)
+			ctx.paint_with_alpha(alpha)
+
+	def get_image_dimensions(self, name):
+		if self.svgs.has_key(name):
+			return self.svgs[name].get_dimension_data()
+		elif self.pngs.has_key(name):
+			png = self.pngs[name]
+			return [png.get_width(), png.get_height()]
+		else:
+			return None
+	
+	def get_pixbuf(self, name):
+		if self.svgs.has_key(name):
+			return gtk.gdk.pixbuf_new_from_file(self.path+os.sep+name+".svg")
+		elif self.pngs.has_key(name):
+			return gtk.gdk.pixbuf_new_from_file(self.path+os.sep+name+".png")
+			
+	def get_pixel(self, name, x, y):
+		if self.svgs.has_key(name):
+			self.pixmap = gtk.gdk.bitmap_create_from_data(None, "0"*256, 16, 16)
+			ctx = self.pixmap.cairo_create()
+			self.svgs[name].render_cairo(ctx)
+			#print dir(self.pixmap)
+
+			#print (self.pixmap.get_image(0,0,16,16).get_colormap())
+			#print dir(ctx)
+			#self.pixbuf = self.svgs[name].get_pixbuf()
+			#self.pixbuf = gtk.gdk.pixbuf_new_from_file(self.path+os.sep+name+".svg")
+			#array = self.pixbuf.get_pixels_array()
+			#rgba = array[y][x].tolist()
+			#self.pixbuf = None
+			#del array
+			#array = None
+			
+			return 255
+		elif self.pngs.has_key(name):
+			png = self.pngs[name]
+			return [png.get_width(), png.get_height()]
+
+def roundRectangle(ctx, x, y, width, height, radius):
+	ctx.new_sub_path()
+	ctx.arc (x+radius,y+radius, radius, math.pi, math.pi*1.5)      # left-top
+	ctx.line_to (width-radius, y)                                  # go right
+	ctx.arc (width-radius, y+radius, radius, math.pi*1.5, 0)       # right-top
+	ctx.line_to (width, height-radius)                             # go down
+	ctx.arc (width-radius, height-radius, radius, 0, math.pi/2.0)  #right-bottom
+	ctx.line_to(x+radius, height)                                  # go left
+	ctx.arc(x+radius, height-radius, radius, math.pi/2.0, math.pi) # left-bottom
+	ctx.close_path()                                               # go up
+		
+class Rectangle(gtk.gdk.Rectangle):
+	def __setattr__(self, name, value):
+		gtk.gdk.Rectangle.__setattr__(self, name, value)
+		print name
+	
+class AbstractVirtualCanvas(object):
+	root         = None
+	parent       = None
+	widgets      = None
+	lastSelected = None
+	theme        = None
+	scale        = 1.0
+	alpha        = 1.0
+	
+	rendering      = False
+	blockRedrawing = False
+	makeSnapshot       = False
+	
+	originalRedrawArea = None
+	mouse_drag_widget  = None
+	postPosition       = None
+
+	def __init__(self, root):
+		self.widgets = []
+		self.root = root
+		size = root.get_size()
+		self.bounds = gtk.gdk.Rectangle(0, 0, size[0], size[1])
+		self.root.connect("motion-notify-event",self.motion_notify_event)
+		self.root.connect("button-press-event", self.button_press)
+		self.root.connect("key-press-event", self.key_press)
+		self.root.connect("drag_data_received", self.drag_data_received)
+		#self.root.connect("expose-event", self.expose)	
+		self.root.connect("button-release-event", self.button_release)
+		self.root.connect("configure_event", self.configure_event)
+		#self.root.connect("query-tooltip", self.tooltip_event)
+		#self.root.set_tooltip_text("hey you")
+		#self.root.set_has_tooltip(True)
+
+	def configure_event(self, widget, event):
+		if self.postPosition != None:
+			log.debug("post position: "+str(event))
+			self.setPosition(self.postPosition[0] , self.postPosition[1])
+		self.postPosition = None
+	
+	def setTheme(self, theme):
+		print "Set THEME"
+		self.theme = Theme(theme)
+		allWidgets = []
+		for widget in self.widgets:
+			self._children(widget, allWidgets)
+			
+		for widget in allWidgets:
+			widget.setTheme(self.theme)
+			
+	def addWidget(self, widget):
+		self.widgets.append(widget)
+		widget.root = self
+		widget.parent = self
+		#for child in widget.children:
+		#	self.addWidget(child)
+			
+	def setPosition(self, x, y):
+		log.debug("move window to: [%d, %d]" % (x, y))
+		self.root.move(x, y)
+		
+	def getPosition(self):
+		return self.root.get_position()
+
+	def setSize(self, width, height):
+		log.debug("resize: [%d, %d]" % (width, height))
+		self.root.resize(int(width*self.scale), int(height*self.scale))
+		#self.widgets[0].bounds.width = width
+		
+	def setSizeThenPosition(self, width, height, x, y):
+		log.debug("set size: %d, %d, then position: %d, %d" % (width, height, x, y))
+		self.setSize(width, height)
+		self.postPosition = [x, y]
+
+	def processEvent(self, event):
+		event.x /= self.scale
+		event.y /= self.scale
+	
+	def translateEvent(self, widget, event):
+		x = event.x-widget.bounds.x
+		y = event.y-widget.bounds.y
+		parent = widget.parent
+		b = False
+		while parent != None:
+			
+			x -= parent.bounds.x
+			y -= parent.bounds.y			
+			parent = parent.parent
+			if parent != None:
+				b = True
+		#if b:print "event.x=%d event.y=%d x=%d y=%d" % (event.x, event.y, x, y)
+		return [x,y]
+			
+	def _children(self, widget, l, addInvisible = True):
+		if addInvisible or widget.isVisible():
+			for child in reversed(widget.children):
+				self._children(child, l, addInvisible)
+			l.append(widget)
+	"""
+	def tooltip_event(self, widget, x, y, keyboard_mode, tooltip):
+		print "TOOLTIP"
+	"""
+	def _check_tooltip(self):
+		#print [event.x, event.y]
+		if self.lastSelected != None and self.lastSelected != self.root and self.lastSelected.isEnabled():
+			for callback in self.lastSelected.eventsCallbacks['tooltip_event']:
+				callback(self.lastSelected, None)
+		
+	tooltip_timmer = None
+	def motion_notify_event(self, widget, event):
+		if self.tooltip_timmer != None:
+			gobject.source_remove(self.tooltip_timmer)
+		self.tooltip_timmer = gobject.timeout_add(300, self._check_tooltip)
+		
+		self.processEvent(event)
+		#print (str(event.x)+', '+str(event.y))
+		
+		##### Mouse Drag Motion #####
+		if self.mouse_drag_widget != None:
+			for callback in self.mouse_drag_widget.eventsCallbacks['mouse_drag_motion']:
+				callback(event)
+			
+		#print str(event.x)+', '+str(event.y)
+		allWidgets = []
+		for w in reversed(self.widgets):
+			self._children(w, allWidgets, addInvisible=False)
+		#print allWidgets
+		
+		selected = None
+		#"""
+		for wid in allWidgets:
+			point = self.translateEvent(wid, event)
+			if wid.isVisible() and wid.contains(point[0], point[1]):
+				selected = wid
+				#print "selected %s at x=%d y=%d" % (wid, point[0], point[1])
+				# translate global event coordinates to it's relative coordinates
+				event.x = point[0]
+				event.y = point[1]
+				break
+		#"""
+		"""
+		for wid in self.widgets:
+			if wid.isVisible() and wid.contains(event.x, event.y):
+				selected = wid
+				#break
+		"""
+		#print selected
+		if selected != self.lastSelected and selected != None and selected.isEnabled():
+			for callback in selected.eventsCallbacks['mouse_enter']:
+				callback(selected, event)
+			
+		#if selected == None:
+		#	selected = self.root
+
+		#print str(selected)+', '+str(self.lastSelected)
+		if selected != self.lastSelected and self.lastSelected != None and self.lastSelected != self.root and self.lastSelected.isEnabled():
+			for callback in self.lastSelected.eventsCallbacks['mouse_leave']:
+				callback(self.lastSelected, event)
+		
+		self.lastSelected = selected
+	
+	def button_press(self, widget, event):
+		if self.tooltip_timmer != None:
+			gobject.source_remove(self.tooltip_timmer)
+		#print 'pressed'
+		self.processEvent(event)
+		#print self.lastSelected
+		if self.lastSelected != None and self.lastSelected != self.root and self.lastSelected.isEnabled():
+			for callback in self.lastSelected.eventsCallbacks['button_pressed']:
+				callback(self.lastSelected, event)
+			self.mouse_drag_widget = self.lastSelected
+			#print 'DRAG '+str(self.mouse_drag_widget)
+		
+	def button_release(self, widget, event):
+		print 'released'
+		self.processEvent(event)
+		
+		if self.mouse_drag_widget != None:
+			releasedWidget = self.mouse_drag_widget
+		else:
+			releasedWidget = self.lastSelected
+
+		if releasedWidget != None and releasedWidget != self.root and releasedWidget.isEnabled():
+			for callback in releasedWidget.eventsCallbacks['button_released']:
+				callback(self.lastSelected, event)
+			
+		self.mouse_drag_widget = None
+		
+	def key_press(self, widget, event):
+		for widget in self.widgets:
+			for callback in widget.eventsCallbacks['key_pressed']:
+				callback(event)
+			
+	def drag_data_received(self, widget, dc, x, y, sel_data, info, timestamp):
+		for widget in self.widgets:
+			for callback in widget.eventsCallbacks['drag_data_received']:
+				callback(widget, dc, x, y, sel_data, info, timestamp)
+		
+	def redraw(self):
+		size = self.root.get_size()
+		self.redraw_area(self, gtk.gdk.Rectangle(0, 0, size[0], size[1]))
+		self.notScaled = gtk.gdk.Rectangle(0, 0, size[0], size[1])
+		#self.root.queue_draw()
+	
+	notScaled = None
+	def redraw_area(self, widget, area):
+		if self.notScaled == None:
+			self.notScaled = area.copy()
+		else:
+			self.notScaled = self.notScaled.union(area)
+
+		#printRect(area, 'Invalidate area (not scaled): ')
+		area.x = area.x*self.scale
+		area.y *= self.scale
+		area.width = area.width*self.scale
+		area.height *= self.scale
+		#printRect(area, 'invalidate area: ')
+		
+		#self.root.window.invalidate_rect(area, True)
+		#self.root.window.process_updates(True)
+		#self.root.queue_draw()
+		self.root.queue_draw_area(area.x, area.y, area.width, area.height)
+		
+		#size = self.root.get_size()
+		#self.root.queue_draw_area(0, 0, size[0], size[1])
+		
+	def expose(self, ctx):
+		pass
+		
+	def redraw_all(self, area):
+		
+		area.x /= self.scale
+		area.y /= self.scale
+		area.width /= self.scale
+		area.height /= self.scale
+		
+		if self.notScaled != None and abs(self.notScaled.width-area.width) <= 1 and abs(self.notScaled.height-area.height) <= 1:
+			#printRect(self.notScaled, "Using Not Scaled")
+			area = self.notScaled
+		else:
+			pass
+			#area.width  += 1
+			#area.height += 1
+		
+		
+		#print len(self.widgets)
+		#printRect(area, "area")
+		for widget in self.widgets:
+			
+			if not widget.isVisible():
+				continue
+			
+			widget_bounds = widget.getBounds()
+			intersect = area.intersect(widget_bounds)
+
+			if intersect.width == 0 or intersect.height == 0:
+				continue
+			
+			#printRect(widget_bounds, 'bounds ')
+			
+			"""
+			ctx.save()
+			ctx.reset_clip()
+			ctx.rectangle(intersect)
+			ctx.clip()
+			#printRect(intersect, 'intersec ')#widget.bounds
+			ctx.translate(widget_bounds.x, widget_bounds.y)
+			"""
+			
+			
+			try:
+				log.debug("rendering %s" % widget)
+				self.drawWidget(widget)
+				#widget.draw(ctx)
+			except Exception, e:
+				print "Error in rendering %s widget: %s" % (widget, e)
+			#"""
+			#ctx.restore()
+		#log.debug("Rendering finished")
+	def drawWidget(self, widget):
+		pass
+		
+	def getHeight(self):
+		return self.root.get_size()[1]
+		
+	def getWidth(self):
+		return self.root.get_size()[0]
+
+	def getBounds(self):
+		size = self.root.get_size()
+		return gtk.gdk.Rectangle(0, 0, size[0], size[1])
+	
+class CairoCanvas(AbstractVirtualCanvas):
+	def expose(self, ctx):
+	#def expose(self, widget, event):
+		#log.debug("rendering wave")
+		#ctx = self.root.window.cairo_create()
+		
+		#printRect(event.area, 'CREAR AREA ')
+		#ctx.rectangle(event.area.x, event.area.y, event.area.width, event.area.height)
+		#ctx.clip()
+		#area = event.area
+		
+		clip = ctx.clip_extents()
+		area = gtk.gdk.Rectangle(int(clip[0]), int(clip[1]), int(clip[2]-clip[0]), int(clip[3]-clip[1]))
+		#area = gtk.gdk.Rectangle(clip[0], clip[1], clip[2]-clip[0], clip[3]-clip[1])
+		
+		#printRect(area, 'REDRAW AREA ')
+		ctx.scale(self.scale, self.scale)
+		self.redraw_all(ctx, area)
+		self.notScaled = None
+		#"""
+		#"""
+		try:
+			self.redraw_all(ctx, event.area)
+		except Exception,e:
+			print e
+		#"""
+		
+		
+import gtk.gtkgl
+import utils
+from OpenGL.GL import *
+
+class OpenGlCanvas(AbstractVirtualCanvas):
+    
+    motionBlurEnabled = False
+    motionBlur = False
+	
+    def __init__(self, root):
+		AbstractVirtualCanvas.__init__(self, root)
+		
+		glconfig = utils.getGlConfig(root)
+		#OK: 72, 74, 76, 78, 7a, 
+		#glconfig = utils.getGlConfigByVisualID(root, int('0x73', 16))
+
+		#glconfig = utils.getGlConfigByVisualID(root, 35)
+		
+		self.glarea = gtk.gtkgl.DrawingArea(glconfig)
+		
+		self.glarea.connect_after ('realize',         self.opengl_init)
+		self.glarea.connect       ('expose_event',    self.expose)
+		self.glarea.connect       ('configure_event', self.opengl_configure)
+		root.connect              ('configure_event', self.window_configure)
+		self.root.add(self.glarea)
+		self.glarea.show()
+		
+    def window_configure(self, widget, event):
+    	self.redraw()
+		#self.opengl_drawing(gtk.gdk.Rectangle(0,0,event.width, event.height))
+		
+    def opengl_init(self, widget):
+        print "OpenGl version: %s" % glGetString(GL_VERSION)
+        print "OpenGl vendor: %s" % glGetString(GL_VENDOR)
+        print "OpenGl renderer: %s" % glGetString(GL_RENDERER)
+        try:
+            print "OpenGl GLSL: %s" % glGetString(GL_SHADING_LANGUAGE_VERSION)
+        except: pass
+        print "OpenGl Extensions:"
+        print glGetString(GL_EXTENSIONS)
+        
+        gldrawable = widget.get_gl_drawable()
+        glcontext = widget.get_gl_context()
+        if not gldrawable.gl_begin(glcontext):
+            return
+        
+        #if not self.init_glsl(): sys.exit()
+        #print glGetString(GL_EXTENSIONS).find("GL_ARB_imaging")
+        #self.FBO1 = self.newTextureFramebuffer()
+        #self.FBO2 = self.newTextureFramebuffer()
+        #glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0)
+        redAccumSize = glGetIntegerv(GL_ACCUM_RED_BITS)
+        greenAccumSize = glGetIntegerv(GL_ACCUM_GREEN_BITS)
+        blueAccumSize = glGetIntegerv(GL_ACCUM_BLUE_BITS)
+        alphaAccumSize = glGetIntegerv(GL_ACCUM_ALPHA_BITS)
+        
+        print "ALPHA SIZE %d" % glGetIntegerv(GL_ALPHA_BITS)
+        print "\nACUMULATION BUFER SIZE %d %d %d %d\n" % (redAccumSize, greenAccumSize, blueAccumSize, alphaAccumSize)
+        if (redAccumSize & greenAccumSize & blueAccumSize & alphaAccumSize) > 0:
+        	print "Motion Blur enabled"
+        	self.motionBlurEnabled = True
+        
+        glEnable (GL_BLEND)
+        glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        glEnable(GL_TEXTURE_2D)
+        #glEnable(GL_DEPTH_TEST)
+        
+        glEnable(GL_SCISSOR_TEST)
+        gldrawable.gl_end()
+        #gobject.timeout_add(30, self.redraw)
+
+    def opengl_configure(self, widget, event):
+        print "OPEN GL CONFIGURE"
+        
+        gldrawable = widget.get_gl_drawable()
+        glcontext = widget.get_gl_context()
+        if not gldrawable.gl_begin(glcontext):
+            return
+        
+        glViewport (0, 0, event.width, event.height)
+        glMatrixMode (GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho (0.0, event.width, 0.0, event.height, -100.0, 100.0)
+        glMatrixMode (GL_MODELVIEW)
+        glClearAccum(0.0, 0.0, 0.0, 0.0)
+        glClear(GL_ACCUM_BUFFER_BIT)
+        glClearColor(0, 0, 0, 0.0)
+        
+        gldrawable.gl_end()
+        
+        self.redraw()
+    
+                		
+    def expose(self, widget, event):
+        gldrawable = widget.get_gl_drawable()
+        glcontext = widget.get_gl_context()
+        if not gldrawable.gl_begin(glcontext):
+            return
+        #print "opengl expose"
+        
+        self.opengl_drawing(event.area)
+        
+        if gldrawable.is_double_buffered():
+            gldrawable.swap_buffers()
+        glFlush()
+        gldrawable.gl_end()
+        
+    def opengl_drawing(self, area):
+    	#self.doPreprocessTasks()
+    	#print area
+    	#print "transormed [%d %d %d %d]" % (area.x, self.getHeight()-area.y-area.height, area.width, area.height)
+    	glScissor(area.x, self.getHeight()-area.y-area.height, area.width, area.height)
+    	
+    	#print glIsEnabled(GL_SCISSOR_TEST)
+    	glClear(GL_COLOR_BUFFER_BIT)
+        
+        #if self.blockRendering == True:
+        #    print "BLOCKING RENDERING"
+        #    return
+        
+        glLoadIdentity()
+        #glTranslate(0, self.getHeight()*self.scale, 0)
+        #glScalef(self.scale, -self.scale, 1.0)
+        glTranslate(0, self.getHeight(), 0)
+        glScalef(self.scale, -self.scale, 1.0)
+        
+        self.redraw_all(area)
+        #self.redraw_all(gtk.gdk.Rectangle(0, 0, self.getWidth(), self.getHeight()))
+        #self.opengl_draw()
+        #print "OPENGL DRAW"
+            
+        if self.motionBlurEnabled and self.motionBlur:
+        	try:
+	            q = 0.75
+	            glAccum(GL_MULT, q)
+	            glAccum(GL_ACCUM, 1.0-q)
+	            glAccum(GL_RETURN, 1.0)
+	        except:
+	        	print "Motion Blur faild"
+        
+        #self.doPreprocessTasks()
+        
+        
+    def drawWidget(self, widget):
+    	glPushMatrix()
+    	glTranslatef(widget.bounds.x, widget.bounds.y, 0)
+    	widget.draw(None)
+    	glPopMatrix()
+		
+		
+class Widget(object):
+	bounds     = None
+	lastBounds = None
+	parent     = None
+	children   = None
+	enabled    = True
+	visible    = True
+	opaque     = False # TODO
+	
+	alpha      = 1.0
+	localAlpha = 1.0
+	theme      = None
+	
+
+	def __init__(self):
+		object.__init__(self)
+		self.eventsCallbacks = {
+			'button_pressed'    : [],
+			'button_released'   : [],
+			'key_pressed'       : [],
+			'drag_data_received': [],
+			'mouse_drag_motion' : [],
+			'mouse_enter'       : [],
+			'mouse_leave'       : [],
+			'tooltip_event'     : []}
+
+		self.children = []
+		self.bounds = gtk.gdk.Rectangle()
+		self.lastBounds = self.bounds
+		self.scale = [1.0, 1.0]
+	"""
+	def __setattr__(self, name, value):
+		object.__setattr__(self, name, value)
+		print name
+	"""
+	def registerEvent(self, event, callback):
+		self.eventsCallbacks[event].append(callback)
+		#if self.events.has_key(event):
+		#	self.events[event].append(callback)
+		
+	def setTheme(self, theme):
+		self.theme = theme
+		
+	def setVisible(self, visible):
+		self.visible = visible
+		#self.redraw()
+	
+	def isVisible(self):
+		return self.visible
+		
+	def setEnabled(self, enabled):
+		self.enabled = enabled
+		#self.redraw()
+		
+	def isEnabled(self):
+		return self.enabled
+		
+	def setScale(self, scale):
+		#print 'set scale'
+		if not isinstance(scale, list):
+			print "error: scale must be list!"
+		self.scale = scale
+	
+	def setAlpha(self, alpha):
+		self.alpha = alpha
+	
+	def setLocalAlpha(self, alpha):
+		self.localAlpha = alpha
+		
+	def setSize(self, width, height):
+		self.bounds.width = width
+		self.bounds.height = height	
+	
+	def getWidth(self):
+		return self.bounds.width
+		
+	def getHeight(self):
+		return self.bounds.height
+		
+	def getBounds(self):
+		bounds = self.bounds.copy()
+		#bounds.width = (bounds.width*self.scale[0])
+		#bounds.height = (bounds.height*self.scale[1])
+		#bounds.x = self.bounds.x - (self.scale[0]-1.0)*self.bounds.width/2.0
+		#bounds.y = self.bounds.y - (self.scale[1]-1.0)*self.bounds.height/2.0
+		
+		return bounds
+		
+	def addWidget(self, widget):
+		self.children.append(widget)
+		widget.parent = self
+		
+	def getTotalAlpha(self):
+		alpha = self.alpha
+		parent = self.parent
+		while parent != None:
+			alpha *= parent.alpha
+			parent = parent.parent
+		return alpha
+		
+	def redraw(self):
+		bounds = self.getBounds()
+		parent = self.parent
+		root = None
+		while parent != None:
+			root = parent
+			bounds.x += parent.bounds.x
+			bounds.y += parent.bounds.y
+			parent = parent.parent
+		
+		#printRect(bounds, "redraw ")
+		if root != None:
+			root.redraw_area(self, bounds.union(self.lastBounds))
+			self.lastBounds = bounds.copy()
+		else:
+			log.warning("widget: %s x=%d y=%d width=%d height=%d does not have root!" % (self, self.bounds.x, self.bounds.y, self.bounds.width, self.bounds.height))
+		
+	def setPosition(self, x, y):
+		self.bounds.x = x
+		self.bounds.y = y
+
+	def drawComponent(self, ctx):
+		pass
+		
+	def draw(self, ctx):
+		if self.visible == True:
+			self.drawComponent(ctx)
+			for child in self.children:
+				ctx.save()
+				#ctx.reset_clip()
+				#ctx.rectangle(intersect)
+				#ctx.clip()
+				ctx.translate(child.bounds.x, child.bounds.y)
+				child.draw(ctx)
+				ctx.restore()
+			
+	
+	def contains(self, x, y):
+		bounds = self.getBounds()
+		#x = int(x - bounds.x)
+		#y = int(y - bounds.y)
+		return (x > 0 and x < bounds.width-1 and y > 0 and y < bounds.height-1)
+		
+	def button_press_notify(self, widget, event):
+		if self.button_pressed_callback != None: #TODO callable test
+			self.button_pressed_callback(event)
+			
+	def key_press_notify(self, event):
+		if self.key_press_callback != None:
+			self.key_press_callback(event)
+			
+	def getTheme(self):
+		return self.theme
+
+class OpenGlWidget(Widget):
+    
+	texture = None
+	background = None
+	
+	def __init__(self):
+		Widget.__init__(self)
+		self.texCoordinates = [0.0, 0.0, 1.0, 1.0]
+
+	"""
+	def redraw(self):
+		bounds = self.getBounds()
+		parent = self.parent
+		root = None
+		while parent != None:
+			root = parent
+			bounds.x += parent.bounds.x
+			bounds.y += parent.bounds.y
+			parent = parent.parent
+		
+		#printRect(bounds, "redraw ")
+		if root != None:
+			root.redraw_area(self, root.getBounds())
+	"""
+	def setPosition2(self, pos):
+		self.bounds.x = pos[0]
+		self.bounds.y = pos[1]
+
+	def draw(self, ctx):
+		if self.visible == True:
+			matrix = glGetFloatv(GL_MODELVIEW_MATRIX)
+			xScale = matrix[0][0]
+			yScale = matrix[1][1]
+			#print [xScale, yScale]
+			glPushMatrix()
+			glTranslatef(self.bounds.width/2.0, self.bounds.height/2.0, 1)
+			glScale(self.scale[0], self.scale[1], 1)
+			glTranslatef(-self.bounds.width/2.0, -self.bounds.height/2.0, 1)
+			
+			self.drawComponent(ctx)
+			for child in self.children:
+				glPushMatrix()
+				glTranslatef(child.bounds.x, child.bounds.y, 0)
+				child.draw(ctx)
+				glPopMatrix()
+				
+			glPopMatrix()
+				
+	def drawComponent(self, ctx):
+		#print "opengl drawing"
+		
+		if self.background != None:
+			glDisable(GL_TEXTURE_2D)
+			glColor4f(1, 0, 1, 1)
+			glBegin (GL_QUADS)
+			glVertex2i   (0, 0)
+			glVertex2i   (self.bounds.width, 0)
+			glVertex2i   (self.bounds.width, self.bounds.height)
+			glVertex2i   (0, self.bounds.height)
+			glEnd()
+	         	
+		if self.texture != None:
+			glEnable(GL_BLEND)
+			glEnable(GL_TEXTURE_2D)
+			#glDisable(GL_TEXTURE_2D)
+			glBindTexture(GL_TEXTURE_2D, self.texture)
+			#glBindTexture(GL_TEXTURE_RECTANGLE_ARB, self.texture)
+			alpha = self.getTotalAlpha()*self.localAlpha
+			
+			glColor4f(1, 1, 1, 1*alpha)
+			glBegin (GL_QUADS)
+			glTexCoord2f (self.texCoordinates[0], self.texCoordinates[1])
+			glVertex2i   (0, 0)
+			glTexCoord2f (self.texCoordinates[2], self.texCoordinates[1])
+			glVertex2i   (self.bounds.width, 0)
+			glTexCoord2f (self.texCoordinates[2], self.texCoordinates[3])
+			glVertex2i   (self.bounds.width, self.bounds.height)
+			
+			glTexCoord2f (self.texCoordinates[0], self.texCoordinates[3])
+			glVertex2i   (0, self.bounds.height)
+			glEnd()
+
+	def free(self):
+		for child in self.children:
+			child.free()
+		if self.texture != None:
+			print "deleting texture: %d" % self.texture
+			glDeleteTextures(self.texture)
+	        
+	        		
+class ImageButton(Widget):
+	image     = None
+	imageOver = None
+
+	anim_steps = 6
+	anim_fraction = 0.0
+	anim_timer = None
+	frame = 0
+	img_scale = 1.0
+	pixbuf = None
+	
+	bounds_backup = None
+	enterAnim     = None
+	pressedAnim   = None
+	visibleAnim   = None
+	
+	visibilityThreshold = 100
+	
+	overAlpha = 0.0
+	
+	def __init__(self, image, imgOver):
+		Widget.__init__(self)
+		self.image = image
+		self.imageOver = imgOver
+		self.registerEvent('button_pressed' , self.startPressedAnim)
+		self.registerEvent('button_released', self.startReleasedAnim)
+		self.registerEvent('mouse_enter'    , self.enter_notify)
+		self.registerEvent('mouse_leave'    , self.leave_notify)
+	
+	def setTheme(self, theme):
+		Widget.setTheme(self, theme)
+		if self.image != None:
+			image = self.image
+		else:
+			if self.imageOver != None:
+				image = self.imageOver
+			else:
+				print "ImageButton without image, wtf?"
+			
+		dimensions = theme.get_image_dimensions(image)
+		if dimensions != None:
+			self.bounds.width  = dimensions[0]
+			self.bounds.height = dimensions[1]
+			
+			#stride = self.bounds.width * 4
+			#data = array.array('c', chr(0) * self.bounds.width * self.bounds.height * 4)
+			#buff = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32, self.bounds.width, self.bounds.height, stride)
+			# better way
+			#buff = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.bounds.width, self.bounds.height)
+			
+			self.pixbuf = self.theme.get_pixbuf(image)
+			#print "%s, %s" % (self.bounds.width, self.bounds.height)
+		
+	def setOverAlpha(self, alpha):
+		self.overAlpha = alpha
+		
+	def drawComponent(self, ctx):
+		if not self.theme:
+			print "can't render widget, theme not set"
+			return
+		
+		alpha = self.getTotalAlpha()
+		
+		if not self.enabled:
+			self.scale = [1.0, 1.0]
+			self.overAlpha = 0.0
+		#ctx.save()
+		ctx.translate(self.bounds.width/2.0, self.bounds.height/2.0)
+		ctx.scale(self.scale[0], self.scale[1])
+		ctx.translate(-self.bounds.width/2.0, -self.bounds.height/2.0)
+		ctx.set_operator (cairo.OPERATOR_OVER)
+		#ctx.set_source_rgb(0, 1, 0)
+		#ctx.rectangle(0, 0, self.bounds.width, self.bounds.height)
+		#ctx.stroke()
+		#self.theme.render(ctx, self.image)
+		#self.theme.render(ctx, self.imageOver)
+		self.theme.render_with_alpha(ctx, self.image, (1.0-self.overAlpha)*alpha)
+		self.theme.render_with_alpha(ctx, self.imageOver, self.overAlpha*alpha)
+		
+		if not self.enabled:
+			ctx.set_operator (cairo.OPERATOR_DEST_OUT)
+			ctx.set_source_rgba(0.1, 0.1, 0.1, 0.8)
+			ctx.rectangle(0, 0, self.bounds.width, self.bounds.height)
+			ctx.fill()
+		#ctx.restore()
+		"""
+		ctx1.scale(1.0/1.3, 1/1.3)
+		ctx1.set_source_surface(self.buff)
+		ctx1.paint()
+		"""
+	def setVisible(self, visible):
+		Widget.setVisible(self, visible)
+		if visible and self.visibleAnim != None:
+			self.visibleAnim.startAnimation(self, self.redraw)
+			
+		if not visible and self.visibleAnim != None:
+			self.visibleAnim.stopAnimation()
+		
+	def setVisibleAnimation(self, anim):
+		self.visibleAnim = anim
+		
+	def setEnterAnimation(self, anim):
+		self.enterAnim = anim
+		
+	def setPressedAnimation(self, anim):
+		self.pressedAnim = anim
+		
+	def startPressedAnim(self, widget, event):
+		if self.pressedAnim != None:
+			self.pressedAnim.startAnimation(self, self.redraw)
+			
+	def startReleasedAnim(self, widget, event):
+		if self.pressedAnim != None:
+			self.pressedAnim.startAnimation(self, self.redraw, reverse = True)
+			
+	def enter_notify (self, widget, event):
+		#print 'enter'
+		if self.enterAnim != None:
+			self.enterAnim.startAnimation(self, self.redraw)
+		
+	def leave_notify (self, widget, event):
+		#print 'leaveee'
+		if self.enterAnim != None:
+			self.enterAnim.startAnimation(self, self.redraw, reverse = True)
+		
+	def contains(self, x, y):
+		bounds = self.getBounds()
+		#x = int(x - bounds.x)
+		#y = int(y - bounds.y)
+		#print str(x)+', '+str(y)
+		if x > 0 and x < bounds.width-1 and y > 0 and y < bounds.height-1:
+			if self.pixbuf != None and self.pixbuf.get_has_alpha():
+				try:
+					#x = int(x/self.scale[0])
+					#y = int(y/self.scale[1])
+					x = int(x)
+					y = int(y)
+					#print str(x)+', '+str(y)
+					alpha =  self.pixbuf.get_pixels_array()[y][x][3][0]
+					#alpha = self.theme.get_pixel(self.image, x, y)#[3]
+					#print alpha
+					if alpha < self.visibilityThreshold:
+						return False
+				except Exception, e:
+					print "Can't detect pixel alpha value in ImageButton, bounding box will be used. Cause: %s" % e
+			
+			return True
+		return False
+		
+class DropDownList(Widget):
+	
+	items    = None
+	selected = None
+	label    = None
+	unrolled = False
+	itemSelectedCallbacks = None
+	
+	def __init__(self, items = []):
+		Widget.__init__(self)
+		self.itemSelectedCallbacks = []
+
+		self.selectedItemLabel = Label("", fixedSize = True)
+		self.addWidget(self.selectedItemLabel)
+		
+		self.selectedItemLabel.registerEvent('button_released', self.showList)
+		self.registerEvent('button_released', self.showList)
+		self.registerEvent('mouse_leave'    , self.mouse_leave)
+		self.setItems(items)
+
+	def setSize(self, width, height):
+		Widget.setSize(self, width, height)
+		self.selectedItemLabel.setSize(self.bounds.width-15, self.bounds.height - 4)
+		self.selectedItemLabel.setPosition(2, (self.getHeight()-self.selectedItemLabel.getHeight())/2.0)
+
+	def registerItemSelected(self, callback):
+		self.itemSelectedCallbacks.append(callback)
+		
+	def setItems(self, items):	
+		self.items = items
+		if len(items) > 0:
+			self.selectedItemLabel.setText(items[0])
+		else:
+			self.selectedItemLabel.setText("")
+
+	def showItem(self, item):
+		if self.unrolled == True:
+			self.children = []
+			self.selectedItemLabel.setText(item)
+			self.addWidget(self.selectedItemLabel)
+			self.bounds.y      = self.y
+			self.bounds.height = self.height
+			self.unrolled = False
+			self.redraw()
+	
+	def itemClicked(self, widget, event):
+		self.setSelected(widget.text)
+		
+	def setSelected(self, item):
+		if item in self.items:
+			self.showItem(item)
+			for callback in self.itemSelectedCallbacks:
+				callback(item)
+		
+	def showList(self, widget, event):
+		#print "UNROLL"
+		if self.unrolled == False and len(self.items) > 1:
+			self.unrolled = True
+			self.y = self.bounds.y
+			self.height = self.bounds.height
+			
+			sortedItems = []
+			for item in self.items:
+				if item != self.selectedItemLabel.text:
+					sortedItems.append(item)
+			sortedItems.append(self.selectedItemLabel.text)
+			
+			self.children = []	
+			labels = []
+			
+			itemLabelHeight = self.selectedItemLabel.getHeight()
+			for item in sortedItems:
+				label = Label(item)
+				label.registerEvent('button_released', self.itemClicked)
+				label.registerEvent('mouse_enter'    , self.enter_notify)
+				label.registerEvent('mouse_leave'    , self.itemMouseLeave)
+				label.setSize(self.selectedItemLabel.getWidth(), itemLabelHeight)
+				if item != self.selectedItemLabel.text:
+					label.alpha = 0.5
+				labels.append(label)
+				self.addWidget(label)
+			
+			y = 0
+			for i in range(0, len(labels)):
+				y += 2
+				labels[i].setPosition(2, y)
+				y += itemLabelHeight + 2
+			
+			self.bounds.y -= y-self.bounds.height
+			self.bounds.height = y
+			self.redraw()
+		else:
+			self.setSelected(self.selectedItemLabel.text)
+	
+	def enter_notify (self, widget, event):
+		widget.alpha = 1.0
+		widget.redraw()
+	
+	def itemMouseLeave(self, widget, event):
+		#if widget.text != self.selected:
+		widget.alpha = 0.5
+		widget.redraw()
+		
+	def mouse_leave (self, widget, event):
+		if not self.contains(event.x, event.y):
+			self.showItem(self.selectedItemLabel.text)
+			self.redraw()
+		
+	def drawComponent(self, ctx):
+		alpha = self.getTotalAlpha()
+		
+		width  = self.bounds.width - 1
+		height = self.bounds.height -1
+		
+		ctx.set_source_rgba(1, 1, 1, 0.05*alpha)
+		roundRectangle(ctx, 0, 0, width, height, 5)
+		ctx.fill()
+		
+		ctx.set_line_width(2.0)
+		ctx.set_source_rgba(1, 1, 1, 0.15*alpha)
+		roundRectangle(ctx, 1, 1, width, height, 5)
+		ctx.stroke()
+		
+		ctx.set_line_width(1.0)
+		if not self.unrolled:
+			if len(self.items) > 1:
+				ctx.set_source_rgba(1, 1, 1, 0.8*alpha)
+			else:
+				ctx.set_source_rgba(1, 1, 1, 0.2*alpha)
+			ctx.new_sub_path()
+			(2.0/3.0)*height
+			ctx.move_to (width -3, (3.0/5.0)*height)
+			ctx.line_to (width -6, (2.0/5.0)*height)
+			ctx.line_to (width -9, (3.0/5.0)*height)
+			ctx.stroke()
+		else:
+			ctx.set_source_rgba(1, 1, 1, 0.5*alpha)
+			h = self.selectedItemLabel.getHeight() + 4
+			w = self.selectedItemLabel.getWidth() - 3
+			for i in range(1, len(self.items)):
+				ctx.move_to (5, i*h)
+				ctx.line_to (w, i*h)
+				ctx.stroke()
+		
+class Label(Widget):
+
+	text = ""
+	textExtents = None
+	CENTER = 0
+	LEFT = 1
+	align = LEFT
+	minimalSize = None
+	
+	def __init__(self, text, fixedSize = True):
+		Widget.__init__(self)
+		self.fixedSize = fixedSize
+		buff = cairo.ImageSurface(0, 10, 10)
+		self.ctx = cairo.Context(buff)
+		self.setText(text)
+		
+	def setText(self, text):
+		if not isinstance(text, str):
+			print "ERRORRRR, I wanna string"
+			raise Exception			
+		self.text = text
+		
+		self.textExtents = self.ctx.text_extents(text)
+		
+		if self.fixedSize == False:
+			width = self.textExtents[2] + 4
+			height = self.textExtents[3] + 4
+			if self.minimalSize != None:
+				if width < self.minimalSize[0]:
+					width = self.minimalSize[0]
+				if height < self.minimalSize[1]:
+					height = self.minimalSize[1]
+			self.setSize(width, height)
+		#self.redraw()
+	
+	def setMinimalSize(self, width, height):
+		self.minimalSize = [width, height]
+		
+	def getPrefferedSize(self):
+		if self.textExtents != None:
+			return [self.textExtents[2], self.textExtents[3]]
+		else:
+			return [0, 0]
+		
+	def drawComponent(self, ctx):
+		alpha = self.getTotalAlpha()
+		if not self.enabled:
+			alpha *= 0.5
+		
+		self.textExtents = ctx.text_extents(self.text)
+		ctx.set_source_rgba(0.1, .1, .1, 0.9*alpha)
+		
+		width  = self.bounds.width  -1
+		height = self.bounds.height -1
+		#ctx.set_source_rgba(0, 0, 1, 1)
+		#ctx.rectangle(0, 0, width, height)
+		roundRectangle(ctx, 0, 0, width, height, 3)
+		ctx.fill()
+		#"""
+		
+		if self.align == self.CENTER:
+			#print self.textExtents
+			ctx.translate((width-self.textExtents[2])/2.0, (height-self.textExtents[3])/2.0)
+		elif self.align == self.LEFT:
+			ctx.translate(2, (height-self.textExtents[3])/2.0)
+		#"""
+		#ctx.move_to(0, -extents[1])
+		#ctx.text_path(self.text)
+		#ctx.stroke()
+		
+		ctx.set_source_rgba(1, 1, 1, 0.8*alpha)
+		ctx.move_to(-self.textExtents[0], -self.textExtents[1])
+		ctx.show_text(self.text)
+		"""
+		if not self.enabled:
+			ctx.set_operator (cairo.OPERATOR_DEST_OUT)
+			ctx.set_source_rgba(0.1, 0.1, 0.1, 0.8*alpha)
+			ctx.rectangle(0, 0, self.bounds.width, self.bounds.height)
+			ctx.fill()
+		"""
+
+	

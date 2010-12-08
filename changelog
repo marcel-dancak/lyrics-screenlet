@@ -1,0 +1,81 @@
+0.7.1
+- fixed accessing of the song info metadata, shouldn't crash on missing metadata
+
+0.6.9
+-lyrics align settings: left, center, right
+-lyrics translation on/off switch in menu
+-update translation settings immediately
+-safe minimizing (use when screenlet itself moves on desktop)
+-works in gnome 2.30 (bug is in pycairo, not screenlet!)
+0.6.8
+- lyrics searching bug fix, now it should really works, I promise :D
+0.6.7
+- update of lyrics engine: ALSong now work again (it stopped to work at all after they changed ip address), minilyrics has better encoding handling
+- theme update
+0.6.6
+- bug fix: now should tray icon really works for everybody
+0.6.5
+- added option to minimalization to the system tray
+- set lyrics offset by 0.1s
+- support for gmusicbrowser
+0.6.1
+- should work with any player that support MPRIS API (vlc, Songbird,...)
+- should work with LastFM plugins (tested only on Rhythmbox and seems it works)
+- fixed small text rendering issue
+- google translate improvements, now it shouldn't crash on any lyrics (but still experimental feature)
+0.6.0
+-better performance on greater dimmensions
+-positioning of minimized icon by position on the desktop (not always right-top corner)
+- one ugly icon replaced by 3 ugly icons :D (minimized icon for 3 situations: no active player, lyric not found, player not playing)
+-fade in/out between lyric change
+-experiment with google translate
+-bug fixes: no delay when lyric are downloaded, better lyric auto-saving
+0.5.8
+- fixed lyric first-line triming issue in some cases
+0.5.7
+- in 0.5.6 I broke Inverse color adaptation at all, now it's fixed
+0.5.6
+- fixed color adaptaion mode for Ubuntu
+0.5.5
+- improved lyrics format parsing
+0.5.4
+- again some bugs
+- Exaile 0.3 support even without MPRIS plugin
+0.5.3
+- Exaile 0.3 support (throught MPRIS plugin)
+- better lyrics filtering
+- rendering bug fixed
+0.5.2
+- fixed bug of 0.5.1 - crash without pyxmms installed
+0.5.1
+- black or white color adaptation added
+- fixed some bugs of 0.5 version
+0.5
+- support for xmms player
+- ability to select player
+- simple text color adaptation by background, especially for Transparent theme (disabled by default)
+- hope proxy problem solved
+- ability to stop lyrics searching
+0.4
+- support for Listen 0.6
+- works with more music file formats
+- invisible mode: mouse events can be masked on almost whole screenlet
+- timing control: with up and down keys by 0.5s, now only very simple with not very smooth animation transition, but can help
+- some others
+0.3.1
+- fixed some bugs (players import in python2.6, initial font settings)
+0.3
+- better scaled text rendering
+- minimalized state when no player active
+- support for Audacious, Amarok, Music Player Daemon based players, Quodlibet
+0.2.1
+- fixed some bugs
+- autohiding ability to control panel
+0.2
+- resizing screenlet (right bottom corner)
+- added control buttons
+- improved searching
+- creating synchronized lyrics from unsynchronized (drag text to screenlet and with space key insert timestamps)
+0.15 
+- improved timing
+- support for Exaile and Banshee players

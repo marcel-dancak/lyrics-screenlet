@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV='http://www.w3.org/2003/05/soap-envelope' xmlns:SOAP-ENC='http://www.w3.org/2003/05/soap-encoding' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:ns2='ALSongWebServer/Service1Soap' xmlns:ns1='ALSongWebServer' xmlns:ns3='ALSongWebServer/Service1Soap12'>
+    <SOAP-ENV:Body>
+		<ns1:GetLyric5>
+			<ns1:stQuery>
+				<ns1:strChecksum>checkSum</ns1:strChecksum>
+				<ns1:strVersion>1.93</ns1:strVersion>
+				<ns1:strMACAddress />
+				<ns1:strIPAddress />
+			</ns1:stQuery>
+		</ns1:GetLyric5>
+	</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

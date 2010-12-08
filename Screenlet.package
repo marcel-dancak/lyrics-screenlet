@@ -1,0 +1,7 @@
+[Screenlet Package]
+Name=LyricsScreenlet
+Author=Marcel Dancak
+Desc=Lyrics for linux audio players
+Version=0.7.1
+ApiVersion=0.0.12
+Created=2010/11/08

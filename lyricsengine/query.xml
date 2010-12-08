@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:ns1="ALSongWebServer">
+	<SOAP-ENV:Body>
+		<ns1:GetResembleLyric2>
+			<ns1:stQuery>
+				<ns1:strTitle>$title</ns1:strTitle>
+				<ns1:strArtistName>$artist</ns1:strArtistName>
+				<ns1:nCurPage>0</ns1:nCurPage>
+			</ns1:stQuery>
+		</ns1:GetResembleLyric2>
+	</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
