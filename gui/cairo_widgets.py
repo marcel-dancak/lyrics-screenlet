@@ -461,7 +461,7 @@ class Label(Widget):
 		self.textExtents = self.ctx.text_extents(text)
 		
 		if self.fixedSize == False:
-			width  = self.textExtents[2] + 4
+			width  = self.textExtents[2] + 6
 			height = self.textExtents[3] + 4
 			if self.minimalSize != None:
 				if width < self.minimalSize[0]:

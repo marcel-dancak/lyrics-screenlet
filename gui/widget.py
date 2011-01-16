@@ -535,7 +535,9 @@ class Widget(object):
 		
 	def draw(self, ctx):
 		if self.visible == True:
+			ctx.save()
 			self.drawComponent(ctx)
+			ctx.restore()
 			for child in self.children:
 				ctx.save()
 				#ctx.reset_clip()
