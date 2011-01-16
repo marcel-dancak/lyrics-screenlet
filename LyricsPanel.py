@@ -245,8 +245,8 @@ class LyricsPanel(Widget):
 			
 			self.animation.startupDelay = alarm
 			self.animation.start(self.update)
-			if self.time.isVisible():
-				self.time.animation.start(self.update_timelabel)
+			#if self.time.isVisible():
+			#	self.time.animation.start(self.update_timelabel)
 	
 	def update_timelabel(self):
 		time = self.timeline.getTime()/1000.0
@@ -419,7 +419,6 @@ class LyricsPanel(Widget):
 		#print "redraw Lyrics Panel"
 		#print self.anim_fraction
 		#print self.actualLine
-		
 		t_start = gobject.get_current_time()
 		matrix = ctx.get_matrix()
 		self.text_matrix = cairo.Matrix(1, matrix[1], matrix[2], 1, matrix[4], matrix[5])
@@ -427,7 +426,7 @@ class LyricsPanel(Widget):
 		self.gscale = matrix[0]
 		if self.gscale != lastScale:
 			self.resizeBuffers()
-			
+		
 		ctx.set_matrix(self.text_matrix)
 		#ctx.scale(1.0/scale_x, 1.0/scale_y)
 		
@@ -477,7 +476,6 @@ class LyricsPanel(Widget):
 			self.anim_fraction = 0.0
 			self.textForAnimation = None
 			self.actualLine += 1
-			
 		if self.render_lyrics and self.lyrics and self.actualLine < len(self.lyrics.entities):
 			#fraction = math.sin(self.animation.fraction*1.57)
 			fraction = math.sin(self.anim_fraction*1.57) # non-linear interpolation of animation fraction
@@ -503,9 +501,8 @@ class LyricsPanel(Widget):
 				self.dec_scale = self.text_scale-fraction*(self.text_scale-1.0)
 				# increasing scale text factor in animation
 				self.inc_scale = 1.0+fraction*(self.text_scale-1.0)
-		
-				# must be integer due to nice text rendering on raster
 				
+				# must be integer due to nice text rendering on raster
 				
 				if self.textAlign == ALIGN_CENTER:
 					self.center_x = int(((self.bounds.width-self.bounds.width/self.text_scale)/2.0)*self.gscale)
@@ -514,16 +511,16 @@ class LyricsPanel(Widget):
 				else:
 					self.center_x = int((self.bounds.width-self.bounds.width/self.text_scale)*self.gscale)
 				#self.center_x = ((self.bounds.width-self.bounds.width/self.text_scale)/2.0)*self.gscale
-		
+				
 				#print (self.center_y + self.motion_y)*self.gscale
-		
+				
 				if self.textForAnimation != self.actualLine:
 					#print "treba to %f" % self.anim_fraction
 					self.textForAnimation = self.actualLine
 					# resize text buffer if needed
 					if self.lyrics.entities[self.actualLine].height*self.gscale > self._buffer1.height:
 						self._buffer1.resize(self._buffer1.width, self.lyrics.entities[self.actualLine].height*self.gscale)
-				
+					
 					self._buffer1.clear()
 					#options = self._buffer1.ctx.get_font_options()
 					#options.set_hint_metrics(cairo.HINT_METRICS_OFF)
@@ -541,11 +538,11 @@ class LyricsPanel(Widget):
 				
 						self._buffer2.clear()
 						self.drawScaledLyric(self._buffer2.ctx, self.lyrics.entities[self.actualLine+1], self.text_scale)
-
+				
 				options = ctx.get_font_options()
+			
 			#else: print "NETREBA"
 			self.lastState = [self.actualLine, self.anim_fraction]
-			
 			
 			self.dec_color = (self.color_highlight[0]+(self.color_normal[0]-self.color_highlight[0])*fraction,
 						 self.color_highlight[1]+(self.color_normal[1]-self.color_highlight[1])*fraction,
@@ -555,7 +552,6 @@ class LyricsPanel(Widget):
 						 self.color_normal[1]+(self.color_highlight[1]-self.color_normal[1])*fraction,
 						 self.color_normal[2]+(self.color_highlight[2]-self.color_normal[2])*fraction,
 						 self.color_normal[3]+(self.color_highlight[3]-self.color_normal[3])*fraction)
-			
 			
 			#################################
 			##### And finally Rendering #####
@@ -604,7 +600,6 @@ class LyricsPanel(Widget):
 			##### render texts before #####
 			###############################
 			#"""
-			
 			
 			
 			ctx.translate(self.center_x, 0) #CENTER
@@ -677,9 +672,6 @@ class LyricsPanel(Widget):
 					self.drawScaledLyric(ctx, self.lyrics.entities[i], 1, cache = True)
 					ctx.translate(0, self.lyrics.entities[i].height*self.gscale)
 					y += self.lyrics.entities[i].height
-
-		#"""
-		ctx.restore()
 		
 		# make soft edges
 		ctx.save()
@@ -702,6 +694,7 @@ class LyricsPanel(Widget):
 		ctx.set_operator(cairo.OPERATOR_DEST_OVER)
 		ctx.scale(self.bounds.width/300.0, self.bounds.height/130.0)
 		self.theme.render(ctx,'background')
+		ctx.restore()
 		
 		"""
 		# render message instead of lyrics
@@ -961,12 +954,14 @@ class LyricsPanel(Widget):
 				lyrics.entities[-1].text.append(line)
 			else:
 				lyrics.entities.append(LyricEntity([line], 999))
+		lyrics.entities[0].seconds = 0
 		
 		self.stopAnimation()
 		self.lyrics = lyrics
 		self.lyrics_need_update = True
 		self.setMode('editing')
 		self.redraw()
+	
 	
 	def contains(self, x, y):
 		x = int(x - self.bounds.x)
