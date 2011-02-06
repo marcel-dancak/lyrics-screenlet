@@ -101,7 +101,7 @@ class MprisApiPlayer(PlayerEvents):
 		try:
 			metadata = self.playerAPI.GetMetadata()
 		except:
-			print "Error getting player metadata"
+			print "Error in getting player metadata"
 			return None
 		if metadata.has_key('location'):
 			uri = metadata['location']
@@ -111,11 +111,11 @@ class MprisApiPlayer(PlayerEvents):
 			print "Can't get current song info from MPRIS API"
 			return
 		return utils.get_local_path_from_uri(uri)
-		
+
 	def getCurrentFile(self):
 		return self.getCurrentFromMetadata(self.playerAPI.GetMetadata())
-		
-		
+
+
 	def checkForUpdate(self):
 		if not self._is_active():
 			return False
@@ -146,3 +146,4 @@ class MprisApiPlayer(PlayerEvents):
 		if metadata.has_key('album'):
 			return metadata['album']
 		return ""
+

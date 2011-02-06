@@ -595,7 +595,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			
 			songInfo = {}
 			if not songFile.startswith("http"):
-				songInfo = {'file': songFile}
+				songInfo['file'] = songFile
 			title = self.player.getTitle()
 			if title != None and len(title) > 0:
 				songInfo['title']  = self.player.getTitle()

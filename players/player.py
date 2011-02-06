@@ -320,3 +320,6 @@ class Player(PlayerEvents):
 	
 	def getAlbum(self):
 		return self.player.get_album()
+	
+	def getMetadata(self):
+		pass

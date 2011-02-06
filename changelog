@@ -1,5 +1,7 @@
 0.7.1
-- fixed accessing of the song info metadata, shouldn't crash on missing metadata
+- fixed accessing of the song info metadata - doesn't crash on missing metadata
+- works with a new gtk version (deprecation warning turned into TypeError)
+- fixed bug in saving/restoring cairo context (in Widget and LyricsPanel classes)
 
 0.6.9
 -lyrics align settings: left, center, right
