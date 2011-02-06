@@ -420,6 +420,7 @@ class LyricsPanel(Widget):
 		#print self.anim_fraction
 		#print self.actualLine
 		t_start = gobject.get_current_time()
+		ctx.save()
 		matrix = ctx.get_matrix()
 		self.text_matrix = cairo.Matrix(1, matrix[1], matrix[2], 1, matrix[4], matrix[5])
 		lastScale = self.gscale
@@ -673,6 +674,7 @@ class LyricsPanel(Widget):
 					ctx.translate(0, self.lyrics.entities[i].height*self.gscale)
 					y += self.lyrics.entities[i].height
 		
+		ctx.restore()
 		# make soft edges
 		ctx.save()
 		ctx.set_operator(cairo.OPERATOR_DEST_OUT)
