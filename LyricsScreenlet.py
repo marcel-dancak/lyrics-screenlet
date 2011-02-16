@@ -52,6 +52,11 @@ try:
 except:
 	pass
 
+import unicodedata
+
+def remove_accents(text):
+	nkfd_form = unicodedata.normalize('NFKD', unicode(text))
+	return u"".join([c for c in nkfd_form if not unicodedata.combining(c)])
 
 LYRICS_NOT_FOUND = Lyrics([LyricEntity(['lyrics not found'], 0)])
 
@@ -80,6 +85,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 	
 	install_path       = None
 	lyrics_directory   = os.environ['HOME']
+	save_format        = "%{artist} - %{album}/%{title}.lrc"
 	saveFirstLyrics    = False # save flag for addlyrics
 	save_lyrics        = False
 	dirOption          = None
@@ -137,6 +143,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 		self.add_option(BoolOption('Lyrics', 'save_lyrics', self.save_lyrics, 'Save lyrics', 'Allow saving downloaded lyrics to the selected directory'))
 		self.dirOption = DirectoryOption('Lyrics', 'lyrics_directory', self.lyrics_directory, 'Lyrics Directory', 'Directory, where will be downloaded lyrics saved')
 		self.add_option(self.dirOption)
+		self.add_option(StringOption('Lyrics', 'save_format', self.save_format, 'File format', 'Format of the lyrics file for saving/searching on disk'))
 		self.add_option(BoolOption('Lyrics', 'filter_cjk', self.filter_cjk, 'Filter some languages', 
 			'Filter Chinese, Japanese, Korean languages (maybe more), which may cause troubles with scaling text during animation '))
 		
@@ -610,13 +617,14 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			
 			print "Song Info:"
 			print songInfo
+			print self.lyrics_file(songInfo)
 			if not songInfo.has_key('artist') and title:
 				if title.find("-") != -1:
 					info = title.split("-")
 					songInfo['artist'] = info[0].strip()
 					songInfo['title'] = info[1].strip()
 					if songInfo['title'].find("(") != -1: songInfo['title'] = songInfo['title'][ : songInfo['title'].find("(")].strip()
-			print songInfo		
+			print songInfo
 			self.songInfo = songInfo
 			self.lyricsList = []
 			
@@ -816,7 +824,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 		enterAnim = animation.CompositeAnimation(10, 200)
 		enterAnim.addTransition(self.lyricsPanel.__setattr__, animation.LinearScalarInterpolator(self.lyricsPanel.alpha, 1.0), 'alpha')
 		enterAnim.start(self.lyricsPanel.redraw)
-				
+	"""
 	def lyricsFile(self):
 		if self.songInfo != None:
 			if self.songInfo.has_key('album') and self.songInfo.has_key('artist'):
@@ -840,7 +848,37 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			else:
 				lrc_file = "Unknown"
 			return {'folder' : lrc_folder, 'file' : lrc_file+".lrc"}
-				
+	"""
+	def lyrics_file(self,song_metadata):
+		album = song_metadata.get('album') or 'Unknown Album'
+		artist = song_metadata.get('artist') or 'Unknown Artist'
+		title = song_metadata['title']
+		lyrics_file = self.save_format.replace('%{album}', album).replace('%{artist}', artist).replace('%{title}', title)
+		return lyrics_file
+
+	def find_hard_on_disk(self, song_metadata):
+		lyrics_file = self.lyrics_file(song_metadata)
+		#print "%%%%%%%%%%%%%%%%%%%%%%%"
+		#print lyrics_file
+		p = self.lyrics_directory
+		lyrics_file_parts = lyrics_file.split("/")
+		for folder in lyrics_file_parts[:-1]:
+			#cur_folder = os.path.join(p, folder)
+			match = False
+			for x in os.listdir(p):
+				if remove_accents(x).lower() == folder.lower():
+					p = os.path.join(p, x)
+					match = True
+					#print "Match:", remove_accents(x), folder
+					break
+			if not match:
+				return None
+		for x in os.listdir(p):
+			if remove_accents(x).lower() == lyrics_file_parts[-1].lower():
+				return os.path.join(p, x)
+		return None
+
+
 	###################################
 	##### save lyrics on the disk #####
 	###################################
@@ -854,25 +892,25 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 				text = self.lyricsPanel.getLyrics()
 				if text == None:
 					log.info('Nothing to save')
-					return
+					return False
 				
-				lrc_path = self.lyricsFile()
-				album_path = self.lyrics_directory + os.sep + lrc_path['folder']
-				if not os.path.exists(album_path) or not os.path.isdir(album_path):
-					log.info("Creating album directory")
+				lrc_file = os.path.join(self.lyrics_directory, self.lyrics_file(self.songInfo))
+				lrc_folder = os.path.dirname(lrc_file)
+				if not os.path.exists(lrc_folder):
+					log.info("Creating directory for lyric file: %s" % lrc_folder)
 					try:
-						os.mkdir(album_path)
+						os.makedirs(lrc_folder)
 					except Exception, e:
-						log.error("Can't create album directory: " + str(e))
-						return
+						log.error("Can't create lyrics directory: %s" % str(e))
+						return False
 
-				lrc_file = album_path + os.sep + lrc_path['file']
 				try:
 					log.info("writing lyrics into file: %s" % lrc_file)
 					fp = open(lrc_file, 'w')
 					fp.write(text)
 					fp.close()
 					self.notifyMessage("Lyrics was saved on disk")
+					return True
 				except Exception, e:
 					log.error("Can't create lyrics file: " + str(e))
 						
@@ -884,17 +922,19 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 		log.debug("searching lyrics on disk")
 		# check for .lrc file in song file directory
 		lrc_file = None
-		if self.songInfo.has_key('file'):
-			lrc_file = self.songInfo['file'].rstrip("mp3")+"lrc" #TODO: not only mp3 expecting
-		if lrc_file == None or not path.exists(lrc_file):
-			lrc_path = self.lyricsFile()
-			lrc_file = self.lyrics_directory + os.sep + lrc_path['folder'] + os.sep + lrc_path['file']
+		if 'file' in self.songInfo:
+			lrc_file = os.path.splitext(self.songInfo['file'])[0]+".lrc"
+			if lrc_file.startswith("file://"):
+				lrc_file = lrc_file[7:]
+			
+		if lrc_file is None or not path.exists(lrc_file):
+			#lrc_file = self.lyrics_file(self.songInfo)
+			lrc_file = self.find_hard_on_disk(self.songInfo)
 			log.debug("lyrics should be here: %s" % lrc_file)
-			if not path.exists(lrc_file):
+			if lrc_file and not path.exists(lrc_file):
 				lrc_file = lrc_file[:-4]
 				log.debug(" For old compatibility, %s will be checked too" % lrc_file)
-				
-		print lrc_file
+		
 		if lrc_file != None and path.exists(lrc_file):
 			f = open(lrc_file, 'r')
 			print "lyrics from file: %s" % lrc_file
