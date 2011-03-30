@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# This application is released under the GNU General Public License 
-# v3 (or, at your option, any later version). You can find the full 
-# text of the license under http://www.gnu.org/licenses/gpl.txt. 
-# By using, editing and/or distributing this software you agree to 
-# the terms and conditions of this license. 
-# Thank you for using free software!
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 import logging
@@ -28,6 +34,7 @@ import traceback
 
 from lyricsengine.engine import LyricsEngine
 from lyricsengine import ALSong
+import diskengine
 
 from LyricsAnimation import LyricsAnimation
 from LyricsPanel import *
@@ -41,6 +48,14 @@ from xgoogle.translate import _languages
 languages = {}
 for k,v in _languages.iteritems():
 	languages[v] = k
+
+# use gettext for translation
+import gettext
+
+try:
+	_ = screenlets.utils.get_translator(__file__)
+except:
+	_ = lambda x: x
 
 text_aligns = {'Center' : ALIGN_CENTER, 'Left' : ALIGN_LEFT, 'Right' : ALIGN_RIGHT}
 # C module
@@ -60,13 +75,19 @@ def remove_accents(text):
 
 LYRICS_NOT_FOUND = Lyrics([LyricEntity(['lyrics not found'], 0)])
 
-#import widget
+# use gettext for translation of docstring
+def tdoc(obj):
+	obj.__doc__ = _(obj.__doc__)
+	return obj
+
+@tdoc
 class LyricsScreenlet(screenlets.Screenlet):#Widget
+	"""Shows lyrics of the linux audio players"""
 	# default meta-info for Screenlets
 	__name__    = 'Lyrics Screenlet'
-	__version__ = '0.7.1'
+	__version__ = '0.7.2'
 	__author__  = 'Marcel Dancak'
-	__desc__    = 'Shows lyrics of the linux audio players'
+	__desc__    = __doc__
 	
 	invisible          = False
 	maximized          = None
@@ -159,7 +180,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 		
 		self.lyricsEngine = LyricsEngine(self.addLyrics, self.onEngineFinish)
 		self.lyricsEngine.setLyricsSources(['alsong', 'minilyrics', 'lrcdb', 'lyricsscreenlet'])
-		#self.lyricsEngine.setLyricsSources(['lyricsscreenlet'])
+		#self.lyricsEngine.setLyricsSources(['minilyrics'])
 		
 		self.player = player.Player()
 		self.xmmsPlayer = None
@@ -284,6 +305,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 	def translate_callback(self, arg):
 		print arg
 		print arg.get_active()
+
 	# attribute-"setter", handles setting of attributes
 	def __setattr__(self, name, value):
 		#if name == 'text_scale' or name == 'font' or name == 'color_highlight' or name == 'color_normal':
@@ -355,6 +377,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 
 	def on_init (self):
 		log.info("Screenlet has been initialized.")
+		self.current_format = self.save_format
 		# add default menuitems
 		#self.add_menuitem("translation", "Google Translate")
 		
@@ -384,7 +407,18 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			self.minimize()
 			
 	def on_menuitem_select(self, item):
-		print item
+		if item == "options" and self.current_format != self.save_format:
+			print self.lyrics_directory, self.current_format, self.save_format
+			format_convertor = diskengine.Convertor(self.lyrics_directory, self.current_format, self.save_format)
+			if format_convertor.can_be_converted():
+				msg = "Save format has changed. Do you want to automatically convert already saved lyrics files?"
+				d = gtk.MessageDialog(None, gtk.DIALOG_MODAL, gtk.MESSAGE_INFO, gtk.BUTTONS_YES_NO, msg)
+				res = d.run()
+				d.destroy()
+				if res == gtk.RESPONSE_YES:
+					print "Converting"
+					format_convertor.convert()
+			self.current_format = self.save_format
 
 	def on_minimized_resized(self, width, height):
 		print "on_minimized_resized: w=%d h=%d" % (width, height)
@@ -953,7 +987,13 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			return 1
 		else:
 			return 0
-			
+
+	def parseTag(self, line):
+		p = re.compile("^(\s)*\[(?P<name>\w+):(?P<value>.+)]$")
+		m = p.match(line)
+		if m:
+			return (m.group('name'), m.group('value'))
+
 	def parseLine(self, line):
 		p = re.compile("^(\s)*\[(?P<min>\d(\d)?):(?P<sec>\d(\d)?(.(\d)+)?)\](?P<text>(.)*)$")
 		m = p.match(line)
@@ -970,6 +1010,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 	def processLyrics(self, lyrics):
 		
 		lines = lyrics.rsplit(os.linesep)
+		tags = {}
 		processedLyrics = []
 		old = -1
 		for line in lines:
@@ -978,10 +1019,16 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			times = []
 			text = None
 			tt = self.parseLine(line)
-			while tt != None:
-				times.append(tt[0])
-				text = tt[1]
-				tt = self.parseLine(text)
+			if tt:
+				while tt != None:
+					times.append(tt[0])
+					text = tt[1]
+					tt = self.parseLine(text)
+			else:
+				tag = self.parseTag(line)
+				if tag:
+					tags[tag[0].lower()] = tag[1]
+					continue
 			
 			#print times
 			#print text
@@ -1018,7 +1065,7 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 					processedLyrics.append(LyricEntity([text], time))
 				old = time
 			
-			continue	
+			continue
 
 			# parse additional info
 			"""
@@ -1029,12 +1076,11 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 					title = line[6:]
 				if not album and line.startswith('album:'):
 					album = line[6:]
-			"""	
+			"""
 		if len(processedLyrics) == 0:
 			# UNSYNCHRONIZED LYRICS
 			return [lyrics]
 
-		
 		#insert same info about song at start, if there is "place"
 		if len(processedLyrics) > 0 and processedLyrics[0].seconds > 0:
 			info = []
@@ -1043,6 +1089,17 @@ class LyricsScreenlet(screenlets.Screenlet):#Widget
 			if self.songInfo.has_key('title'):  info.append(self.songInfo['title'])
 			info.append('')
 			processedLyrics.insert(0, LyricEntity(info, 0))
+		
+		print "TAGS", tags
+		offset = tags.get('offset')
+		if offset:
+			try:
+				offset = float(offset)
+				for line in processedLyrics:
+					line.seconds += offset
+			except:
+				log.warn("using of lyric's offset failed")
+		#for line in processedLyrics: print line.seconds
 		
 		# sort it
 		processedLyrics.sort(cmp = self.compare)
