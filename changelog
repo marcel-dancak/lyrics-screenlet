@@ -1,3 +1,11 @@
+0.7.2
+- fixed bug in saving/restoring cairo state in LyricsPanel visible on default theme
+- searching lyrics on disk with ignoring case and accent and some bug fixes
+- support of "offset" metadata in lyrics files
+- added settings option - format of filename for saving/loading lyrics with automatic
+  conversion between them
+- properties window works with newer screenlets package version
+
 0.7.1
 - fixed accessing of the song info metadata - doesn't crash on missing metadata
 - works with a new gtk version (deprecation warning turned into TypeError)
